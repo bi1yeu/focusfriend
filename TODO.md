@@ -1,0 +1,12 @@
+- [x] schedule focus time on recurring schedule
+- [ ] remove focus time that's been scheduled over
+- [ ] schedule lunch / omit lunch from focus time
+- [ ] update slack status when busy
+- [ ] send daily schedule summary
+  - depends where we want to send it. i think the google calendar integration already can send day's events to slack
+- [ ] collect focus metrics
+- [ ] cleanup timezone handling and fix tz bug (see code)
+- [ ] read min focus time from sheet
+- [ ] read tz from sheet
+- [ ] read lunch prefs from sheet
+

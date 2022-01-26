@@ -29,7 +29,7 @@ clasp open --addon
 ```
 Setting Key	Setting Value
 workday_start_hour	9:00 AM
-workday_end_hour	5:00 PM
+workday_end_hour	6:00 PM
 ```
 
 Push the Apps Script code to the Sheets Add-on script:

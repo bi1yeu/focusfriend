@@ -77,8 +77,10 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
     nextDayDateTime.getDate()
   );
 
-  // get all events between current day and next day
-  const events = CalendarApp.getEvents(workdayStart, nextDayStart);
+  // get all non-declined events between current day and next day
+  const events = CalendarApp.getEvents(workdayStart, nextDayStart).filter(
+    (event) => event.getMyStatus() !== CalendarApp.GuestStatus.NO
+  );
 
   const eventStartEnds = events.map((event) => [
     event.getStartTime(),

@@ -10,8 +10,6 @@ const FOCUS_TIME_MIN_HOURS = 2;
 
 const SETTINGS_RANGE = "A1:B100";
 
-};
-
 // Gets settings from parent Sheet
 class Settings {
   constructor() {

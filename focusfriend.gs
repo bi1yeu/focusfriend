@@ -74,8 +74,20 @@ function eventStartEndsComparator(eventStartEndA, eventStartEndB) {
   return 0;
 }
 
-// finds gaps in the schedule of event start and ends
-function findGapsInSchedule(eventStartEnds) {
+// finds gaps in the schedule of events
+function findGapsInSchedule(workdayStart, workdayEnd, events) {
+  const eventStartEnds = events.map((event) => [
+    event.getStartTime(),
+    event.getEndTime(),
+  ]);
+
+  // create placeholder events at start and end of work day to anchor gaps from
+  eventStartEnds.unshift([workdayStart, workdayStart]);
+  eventStartEnds.push([workdayEnd, workdayEnd]);
+
+  // sort events
+  eventStartEnds.sort(eventStartEndsComparator);
+
   return eventStartEnds.reduce((gaps, eventStartEnd, index) => {
     const [eventStart, eventEnd] = eventStartEnd;
     const lastGap = gaps.slice(-1)[0];
@@ -127,7 +139,7 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
     settings.getWorkdayStartHour()
   );
 
-  const dayEnd = new Date(
+  const workdayEnd = new Date(
     dayDateTime.getFullYear(),
     dayDateTime.getMonth(),
     dayDateTime.getDate(),
@@ -157,20 +169,8 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
 
   const events = allEvents.filter((event) => !event.getTag(EVENT_TYPE_TAG_KEY));
 
-  const eventStartEnds = events.map((event) => [
-    event.getStartTime(),
-    event.getEndTime(),
-  ]);
-
-  // create placeholder events at start and end of work day to anchor gaps from
-  eventStartEnds.unshift([workdayStart, workdayStart]);
-  eventStartEnds.push([dayEnd, dayEnd]);
-
-  // sort events
-  eventStartEnds.sort(eventStartEndsComparator);
-
   // find all gaps between events
-  const gaps = findGapsInSchedule(eventStartEnds);
+  const gaps = findGapsInSchedule(workdayStart, workdayEnd, events);
 
   // truncate gaps to start and end of work day
   // and filter to only long-enough gaps
@@ -182,8 +182,8 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
         appliedStart = workdayStart;
       }
 
-      if (appliedEnd > dayEnd) {
-        appliedEnd = dayEnd;
+      if (appliedEnd > workdayEnd) {
+        appliedEnd = workdayEnd;
       }
 
       return [appliedStart, appliedEnd];

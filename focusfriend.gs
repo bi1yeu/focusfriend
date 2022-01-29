@@ -10,6 +10,11 @@ const FOCUS_TIME_MIN_HOURS = 2;
 
 const SETTINGS_RANGE = "A1:B100";
 
+const EVENT_TYPE_TAG_KEY = "focusfriend_event_tag";
+const EVENT_TYPE_TAGS = {
+  FOCUS: "focus",
+};
+
 // Gets settings from parent Sheet
 class Settings {
   constructor() {
@@ -137,9 +142,20 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
   );
 
   // get all non-declined events between current day and next day
-  const events = CalendarApp.getEvents(workdayStart, nextDayStart).filter(
+  const allEvents = CalendarApp.getEvents(workdayStart, nextDayStart).filter(
     (event) => event.getMyStatus() !== CalendarApp.GuestStatus.NO
   );
+
+  // delete events previously created by focusfriend
+  allEvents
+    .filter((event) => {
+      return event.getTag(EVENT_TYPE_TAG_KEY);
+    })
+    .forEach((event) => {
+      event.deleteEvent();
+    });
+
+  const events = allEvents.filter((event) => !event.getTag(EVENT_TYPE_TAG_KEY));
 
   const eventStartEnds = events.map((event) => [
     event.getStartTime(),
@@ -152,9 +168,9 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
 
   // sort events
   eventStartEnds.sort(eventStartEndsComparator);
+
   // find all gaps between events
   const gaps = findGapsInSchedule(eventStartEnds);
-
 
   // truncate gaps to start and end of work day
   // and filter to only long-enough gaps
@@ -181,11 +197,12 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
   appliedGaps.forEach((gap) => {
     const [gapStart, gapEnd] = gap;
     if (PERSIST_TO_CAL) {
-      CalendarApp.createEvent(
+      const createdEvent = CalendarApp.createEvent(
         "⏰ Focus Time ⏰ (via Focusfriend)",
         gapStart,
         gapEnd
       );
+      createdEvent.setTag(EVENT_TYPE_TAG_KEY, EVENT_TYPE_TAGS.FOCUS);
     }
   });
 

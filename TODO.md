@@ -1,7 +1,6 @@
 - [x] schedule focus time on recurring schedule
-- [ ] remove focus time that's been scheduled over
-- [ ] adjust focus time that can fill larger gap
-  - this and above might be addressed by first removing all focus blocks and then recomputing them
+- [x] remove focus time that's been scheduled over
+- [x] adjust focus time that can fill larger gap
 - [ ] schedule lunch / omit lunch from focus time
 - [ ] update slack status when busy
   - the google calendar slack integration does this

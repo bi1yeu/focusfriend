@@ -10,11 +10,6 @@ const FOCUS_TIME_MIN_HOURS = 2;
 
 const SETTINGS_RANGE = "A1:B100";
 
-// via https://stackoverflow.com/a/563442
-Date.prototype.addDays = function (days) {
-  var date = new Date(this.valueOf());
-  date.setDate(date.getDate() + days);
-  return date;
 };
 
 // Gets settings from parent Sheet
@@ -51,6 +46,72 @@ class Settings {
       this.settings["workday_end_hour"]?.getHours() || DEFAULT_WORKDAY_END_HOUR
     );
   }
+}
+
+// via https://stackoverflow.com/a/563442
+Date.prototype.addDays = function (days) {
+  var date = new Date(this.valueOf());
+  date.setDate(date.getDate() + days);
+  return date;
+};
+
+// orders by start time and then end time ascending
+function eventStartEndsComparator(eventStartEndA, eventStartEndB) {
+  const [eventStartA, eventEndA] = eventStartEndA;
+  const [eventStartB, eventEndB] = eventStartEndB;
+
+  if (eventStartA < eventStartB) return -1;
+  if (eventStartB < eventStartA) return 1;
+
+  // start at same time
+
+  if (eventEndA < eventEndB) return -1;
+  if (eventEndB < eventEndA) return 1;
+
+  return 0;
+}
+
+// finds gaps in the schedule of event start and ends
+function findGapsInSchedule(eventStartEnds) {
+  return eventStartEnds.reduce((gaps, eventStartEnd, index) => {
+    const [eventStart, eventEnd] = eventStartEnd;
+    const lastGap = gaps.slice(-1)[0];
+
+    // gaps array is empty, trivially add the start of the first gap
+    if (!lastGap) {
+      gaps.push([eventEnd]);
+      return gaps;
+    }
+
+    const [lastGapStart, lastGapEnd] = lastGap;
+
+    // the last gap is only started
+    if (!lastGapEnd) {
+      if (eventStart > lastGapStart) {
+        // add end of gap if the current event starts after the gap start
+        gaps[gaps.length - 1] = [lastGapStart, eventStart];
+
+        // add start of next gap unless this is the last event
+        if (index !== eventStartEnds.length - 1) {
+          gaps.push([eventEnd]);
+        }
+        return gaps;
+      } else if (eventEnd > lastGapStart) {
+        // update start of last gap if current event ends during or after the
+        // gap start
+        gaps[gaps.length - 1] = [eventEnd];
+        return gaps;
+      }
+    }
+
+    if (lastGapEnd < eventEnd) {
+      // add next gap start
+      gaps.push([eventEnd]);
+      return gaps;
+    }
+
+    return gaps;
+  }, []);
 }
 
 function scheduleFocusTimeForDate(settings, dayDateTime) {
@@ -91,14 +152,11 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
   eventStartEnds.unshift([workdayStart, workdayStart]);
   eventStartEnds.push([dayEnd, dayEnd]);
 
+  // sort events
+  eventStartEnds.sort(eventStartEndsComparator);
   // find all gaps between events
-  const gaps = [];
-  for (let i = 0; i < eventStartEnds.length - 1; i++) {
-    const eventEnd = eventStartEnds[i][1];
-    const nextEventStart = eventStartEnds[i + 1][0];
+  const gaps = findGapsInSchedule(eventStartEnds);
 
-    gaps.push([eventEnd, nextEventStart]);
-  }
 
   // truncate gaps to start and end of work day
   // and filter to only long-enough gaps

@@ -216,6 +216,9 @@ function scheduleFocusTime() {
 
   // schedule focus time for the coming week
   for (let i = dayOfWeek; i < 6; i++) {
-    scheduleFocusTimeForDate(settings, now.addDays(i - dayOfWeek));
+    // don't schedule sunday
+    if (i > 0) {
+      scheduleFocusTimeForDate(settings, now.addDays(i - dayOfWeek));
+    }
   }
 }

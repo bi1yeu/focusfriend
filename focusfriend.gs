@@ -8,14 +8,19 @@ const DEFAULT_WORKDAY_END_HOUR = 20;
 
 const FOCUS_TIME_MIN_HOURS = 2;
 
+// Range in the parent Sheet from which to read settings.
 const SETTINGS_RANGE = "A1:B100";
 
-const EVENT_TYPE_TAG_KEY = "focusfriend_event_tag";
-const EVENT_TYPE_TAGS = {
+// NOTE: changing this should be considered a breaking change, since it's used
+// to look up previously-created events for rescheduling purposes.
+const EVENT_TYPE_TAG_KEY = "focusfriend";
+const EVENT_TYPE = {
   FOCUS: "focus",
 };
 
-// Gets settings from parent Sheet
+/**
+ * Exposes settings from the parent sheet.
+ */
 class Settings {
   constructor() {
     this.spreadsheet = SpreadsheetApp.getActive();
@@ -23,6 +28,8 @@ class Settings {
     this.populateSettings();
   }
 
+  // Reads settings from the sheet and populates member structure. Input range
+  // to read is defined in SETTINGS_RANGE.
   populateSettings() {
     const settingValues = this.spreadsheet.getRange(SETTINGS_RANGE).getValues();
     settingValues.forEach((setting) => {
@@ -51,14 +58,20 @@ class Settings {
   }
 }
 
-// via https://stackoverflow.com/a/563442
+/**
+ * Extends Date to allow adding days.
+ *
+ * via https://stackoverflow.com/a/563442
+ */
 Date.prototype.addDays = function (days) {
   var date = new Date(this.valueOf());
   date.setDate(date.getDate() + days);
   return date;
 };
 
-// orders by start time and then end time ascending
+/**
+ * Orders events by start time and then by end time ascending.
+ */
 function eventStartEndsComparator(eventStartEndA, eventStartEndB) {
   const [eventStartA, eventEndA] = eventStartEndA;
   const [eventStartB, eventEndB] = eventStartEndB;
@@ -74,7 +87,10 @@ function eventStartEndsComparator(eventStartEndA, eventStartEndB) {
   return 0;
 }
 
-// finds gaps in the schedule of events
+/**
+ * Finds all gaps in a schedule of events. Also applies workday start and end
+ * settings to bound gap-finding.
+ */
 function findGapsInSchedule(workdayStart, workdayEnd, events) {
   const eventStartEnds = events.map((event) => [
     event.getStartTime(),
@@ -88,6 +104,13 @@ function findGapsInSchedule(workdayStart, workdayEnd, events) {
   // sort events
   eventStartEnds.sort(eventStartEndsComparator);
 
+  // this reduction is kind of hard to understand. basically we're looking at
+  // each event, one by one, and determining whether a gap starts or ends around
+  // it. in this way we incrementally build up and refine the gap array.
+  //
+  // e.g., we determine a gap starts when an event ends. if that gap start falls
+  // in the middle of another event, it means the two events were overlapping,
+  // and so we shift the gap end later, etc.
   return eventStartEnds.reduce((gaps, eventStartEnd, index) => {
     const [eventStart, eventEnd] = eventStartEnd;
     const lastGap = gaps.slice(-1)[0];
@@ -129,6 +152,9 @@ function findGapsInSchedule(workdayStart, workdayEnd, events) {
   }, []);
 }
 
+/**
+ * Schedules (and reschedules) all focus time blocks for a given day.
+ */
 function scheduleFocusTimeForDate(settings, dayDateTime) {
   Logger.info(`Scheduling focus time for ${dayDateTime}`);
 
@@ -167,6 +193,8 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
       event.deleteEvent();
     });
 
+  // filter to the existing events that we have to schedule around, exluding the
+  // previously-deleted focusfriend events
   const events = allEvents.filter((event) => !event.getTag(EVENT_TYPE_TAG_KEY));
 
   // find all gaps between events
@@ -194,21 +222,38 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
       return gapHours >= FOCUS_TIME_MIN_HOURS;
     });
 
+  // create events of the appropriate type
   appliedGaps.forEach((gap) => {
     const [gapStart, gapEnd] = gap;
     if (PERSIST_TO_CAL) {
-      const createdEvent = CalendarApp.createEvent(
-        "⏰ Focus Time ⏰ (via Focusfriend)",
-        gapStart,
-        gapEnd
-      );
-      createdEvent.setTag(EVENT_TYPE_TAG_KEY, EVENT_TYPE_TAGS.FOCUS);
+      createEvent(EVENT_TYPE.FOCUS, gapStart, gapEnd);
     }
   });
 
   Logger.info({ appliedGaps });
 }
 
+const EVENT_TYPE_NAMES = {
+  [EVENT_TYPE.FOCUS]: "Focus Time",
+};
+
+/**
+ * Wrapper for the CalendarApp.createEvent() interface. Creates event of the
+ * provided type and sets the event tag.
+ */
+function createEvent(eventType, eventStart, eventEnd) {
+  const eventName = EVENT_TYPE_NAMES[eventType];
+  const createdEvent = CalendarApp.createEvent(
+    `⏰ ${eventName} ⏰ (via Focusfriend)`,
+    eventStart,
+    eventEnd
+  );
+  createdEvent.setTag(EVENT_TYPE_TAG_KEY, eventType);
+}
+
+/**
+ * Entry point. Schedules focus time for the current week.
+ */
 function scheduleFocusTime() {
   const now = new Date();
   const dayOfWeek = now.getDay();

@@ -26,6 +26,7 @@ The sheet that was created will hold the settings. You can paste the below setti
 clasp open --addon
 ```
 
+// TODO update with lunch settings
 ```
 Setting Key	Setting Value
 workday_start_hour	9:00 AM

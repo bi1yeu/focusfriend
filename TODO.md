@@ -1,7 +1,7 @@
 - [x] schedule focus time on recurring schedule
 - [x] remove focus time that's been scheduled over
 - [x] adjust focus time that can fill larger gap
-- [ ] schedule lunch / omit lunch from focus time
+- [x] schedule lunch / omit lunch from focus time
 - [ ] update slack status when busy
   - the google calendar slack integration does this
 - [ ] send daily schedule summary
@@ -10,5 +10,4 @@
 - [ ] cleanup timezone handling and fix tz bug (see code)
 - [ ] read min focus time from sheet
 - [ ] read tz from sheet
-- [ ] read lunch prefs from sheet
-
+- [ ] read lunch min/max time from sheet

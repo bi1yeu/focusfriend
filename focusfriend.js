@@ -251,6 +251,7 @@ function scheduleEventsForDate(settings, dayDateTime) {
   // previously-deleted focusfriend events
   const events = allEvents.filter((event) => !event.getTag(EVENT_TYPE_TAG_KEY));
 
+  // TODO maybe want to define these variables in `calculateLunchEvent`?
   const lunchtimeStart = new Date(
     dayDateTime.getFullYear(),
     dayDateTime.getMonth(),
@@ -397,6 +398,10 @@ function createEvent(event) {
 
 /**
  * Entry point. Schedules Focusfriend events for the current week.
+ *
+ * NOTE: changing the name of this function is a breaking change, since it will
+ * be referenced by the trigger.
+ *
  */
 function scheduleEvents() {
   const now = new Date();

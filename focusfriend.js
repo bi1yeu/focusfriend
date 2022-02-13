@@ -1,12 +1,17 @@
 // Focusfriend
 
+// used for debugging
 const PERSIST_TO_CAL = true;
 
 // NOTE: these hours are in ET
 const DEFAULT_WORKDAY_START_HOUR = 12;
 const DEFAULT_WORKDAY_END_HOUR = 20;
+const DEFAULT_LUNCHTIME_START_HOUR = 15;
+const DEFAULT_LUNCHTIME_END_HOUR = 17;
 
 const FOCUS_TIME_MIN_HOURS = 2;
+const LUNCH_TIME_MIN_MINUTES = 20;
+const LUNCH_TIME_MAX_MINUTES = 60;
 
 // Range in the parent Sheet from which to read settings.
 const SETTINGS_RANGE = "A1:B100";
@@ -16,7 +21,31 @@ const SETTINGS_RANGE = "A1:B100";
 const EVENT_TYPE_TAG_KEY = "focusfriend";
 const EVENT_TYPE = {
   FOCUS: "focus",
+  LUNCH: "lunch",
 };
+
+/**
+ * Conforms to the CalendarEvent API.
+ */
+class FfCalendarEvent {
+  constructor(eventType, startEndTime) {
+    this.type = eventType;
+    this.startTime = startEndTime[0];
+    this.endTime = startEndTime[1];
+  }
+
+  getStartTime() {
+    return this.startTime;
+  }
+
+  getEndTime() {
+    return this.endTime;
+  }
+
+  getType() {
+    return this.type;
+  }
+}
 
 /**
  * Exposes settings from the parent sheet.
@@ -56,16 +85,39 @@ class Settings {
       this.settings["workday_end_hour"]?.getHours() || DEFAULT_WORKDAY_END_HOUR
     );
   }
+
+  getLunchtimeStartHour() {
+    return (
+      this.settings["lunchtime_start_hour"]?.getHours() ||
+      DEFAULT_LUNCHTIME_START_HOUR
+    );
+  }
+
+  getLunchtimeEndHour() {
+    return (
+      this.settings["lunchtime_end_hour"]?.getHours() ||
+      DEFAULT_LUNCHTIME_END_HOUR
+    );
+  }
 }
 
 /**
- * Extends Date to allow adding days.
+ * Extends Date to support adding days.
  *
  * via https://stackoverflow.com/a/563442
  */
-Date.prototype.addDays = function (days) {
-  var date = new Date(this.valueOf());
+Date.prototype.plusDays = function (days) {
+  const date = new Date(this.valueOf());
   date.setDate(date.getDate() + days);
+  return date;
+};
+
+/**
+ * Extends Date to support adding minutes.
+ */
+Date.prototype.plusMinutes = function (minutes) {
+  const date = new Date(this.valueOf());
+  date.setTime(date.getTime() + minutes * 60 * 1000);
   return date;
 };
 
@@ -88,18 +140,17 @@ function eventStartEndsComparator(eventStartEndA, eventStartEndB) {
 }
 
 /**
- * Finds all gaps in a schedule of events. Also applies workday start and end
- * settings to bound gap-finding.
+ * Finds all gaps in a schedule of events. Also applies bounds to gap-finding.
  */
-function findGapsInSchedule(workdayStart, workdayEnd, events) {
+function findGapsInSchedule(startBound, endBound, events) {
   const eventStartEnds = events.map((event) => [
     event.getStartTime(),
     event.getEndTime(),
   ]);
 
-  // create placeholder events at start and end of work day to anchor gaps from
-  eventStartEnds.unshift([workdayStart, workdayStart]);
-  eventStartEnds.push([workdayEnd, workdayEnd]);
+  // create placeholder events at bounds from which to anchor gaps
+  eventStartEnds.unshift([startBound, startBound]);
+  eventStartEnds.push([endBound, endBound]);
 
   // sort events
   eventStartEnds.sort(eventStartEndsComparator);
@@ -153,10 +204,11 @@ function findGapsInSchedule(workdayStart, workdayEnd, events) {
 }
 
 /**
- * Schedules (and reschedules) all focus time blocks for a given day.
+ * Schedules (and reschedules) all Focusfriend events for a given day.
  */
-function scheduleFocusTimeForDate(settings, dayDateTime) {
-  Logger.info(`Scheduling focus time for ${dayDateTime}`);
+function scheduleEventsForDate(settings, dayDateTime) {
+  Logger.info("------------");
+  Logger.info(`Scheduling events for ${dayDateTime}`);
 
   const workdayStart = new Date(
     dayDateTime.getFullYear(),
@@ -172,7 +224,7 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
     settings.getWorkdayEndHour()
   );
 
-  const nextDayDateTime = dayDateTime.addDays(1);
+  const nextDayDateTime = dayDateTime.plusDays(1);
   const nextDayStart = new Date(
     nextDayDateTime.getFullYear(),
     nextDayDateTime.getMonth(),
@@ -185,36 +237,128 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
   );
 
   // delete events previously created by focusfriend
-  allEvents
-    .filter((event) => {
-      return event.getTag(EVENT_TYPE_TAG_KEY);
-    })
-    .forEach((event) => {
-      event.deleteEvent();
-    });
+  if (PERSIST_TO_CAL) {
+    allEvents
+      .filter((event) => {
+        return event.getTag(EVENT_TYPE_TAG_KEY);
+      })
+      .forEach((event) => {
+        event.deleteEvent();
+      });
+  }
 
   // filter to the existing events that we have to schedule around, exluding the
   // previously-deleted focusfriend events
   const events = allEvents.filter((event) => !event.getTag(EVENT_TYPE_TAG_KEY));
 
+  // TODO maybe want to define these variables in `calculateLunchEvent`?
+  const lunchtimeStart = new Date(
+    dayDateTime.getFullYear(),
+    dayDateTime.getMonth(),
+    dayDateTime.getDate(),
+    settings.getLunchtimeStartHour()
+  );
+
+  const lunchtimeEnd = new Date(
+    dayDateTime.getFullYear(),
+    dayDateTime.getMonth(),
+    dayDateTime.getDate(),
+    settings.getLunchtimeEndHour()
+  );
+
+  const lunchEvent = calculateLunchEvent(lunchtimeStart, lunchtimeEnd, events);
+
+  const eventsToSchedule = [];
+
+  if (lunchEvent) {
+    eventsToSchedule.push(lunchEvent);
+    // add lunch event to events list so that focus time is scheduled around it
+    events.push(lunchEvent);
+  }
+
+  eventsToSchedule.push.apply(
+    eventsToSchedule,
+    calculateFocusEvents(workdayStart, workdayEnd, events)
+  );
+
+  eventsToSchedule.forEach((event) => {
+    createEvent(event);
+  });
+}
+
+// calculate lunch event within bounds and around other events.
+function calculateLunchEvent(startBound, endBound, events) {
   // find all gaps between events
-  const gaps = findGapsInSchedule(workdayStart, workdayEnd, events);
+  const gaps = findGapsInSchedule(startBound, endBound, events);
+
+  // truncate gaps to start and end of lunch time
+  // and filter to only long-enough gaps
+  const potentialGaps = gaps
+    .map((gap) => {
+      let [gapStart, gapEnd] = gap;
+
+      if (gapStart < startBound) {
+        gapStart = startBound;
+      }
+
+      if (gapEnd > endBound) {
+        gapEnd = endBound;
+      }
+
+      return [gapStart, gapEnd];
+    })
+    .filter((gap) => {
+      const [gapStart, gapEnd] = gap;
+      const gapMinutes = (gapEnd - gapStart) / 1000 / 60;
+      return gapMinutes >= LUNCH_TIME_MIN_MINUTES;
+    });
+
+  if (potentialGaps.length === 0) {
+    return;
+  }
+
+  // find the longest gap
+  const longestGap = potentialGaps.reduce((longestGap, gap) => {
+    if (!longestGap) {
+      return gap;
+    }
+    if (gap[1] - gap[0] > longestGap[1] - longestGap[0]) {
+      return gap;
+    }
+    return longestGap;
+  });
+
+  // schedule lunch during longest gap, capped to max lunch time
+  const [lunchStart, lunchEnd] = longestGap;
+  let appliedLunchEnd = lunchEnd;
+  const lunchDurationMinutes = (lunchEnd - lunchStart) / 1000 / 60;
+  if (lunchDurationMinutes > LUNCH_TIME_MAX_MINUTES) {
+    appliedLunchEnd = lunchStart.plusMinutes(LUNCH_TIME_MAX_MINUTES);
+  }
+
+  return new FfCalendarEvent(EVENT_TYPE.LUNCH, [lunchStart, appliedLunchEnd]);
+}
+
+// calculate focus time events within bounds and around other events.
+function calculateFocusEvents(startBound, endBound, events) {
+  // find all gaps between events
+  const gaps = findGapsInSchedule(startBound, endBound, events);
 
   // truncate gaps to start and end of work day
   // and filter to only long-enough gaps
-  const appliedGaps = gaps
+  const applicableGaps = gaps
     .map((gap) => {
-      let [appliedStart, appliedEnd] = gap;
+      let [gapStart, gapEnd] = gap;
 
-      if (appliedStart < workdayStart) {
-        appliedStart = workdayStart;
+      if (gapStart < startBound) {
+        gapStart = startBound;
       }
 
-      if (appliedEnd > workdayEnd) {
-        appliedEnd = workdayEnd;
+      if (gapEnd > endBound) {
+        gapEnd = endBound;
       }
 
-      return [appliedStart, appliedEnd];
+      return [gapStart, gapEnd];
     })
     .filter((gap) => {
       const [gapStart, gapEnd] = gap;
@@ -222,48 +366,52 @@ function scheduleFocusTimeForDate(settings, dayDateTime) {
       return gapHours >= FOCUS_TIME_MIN_HOURS;
     });
 
-  // create events of the appropriate type
-  appliedGaps.forEach((gap) => {
-    const [gapStart, gapEnd] = gap;
-    if (PERSIST_TO_CAL) {
-      createEvent(EVENT_TYPE.FOCUS, gapStart, gapEnd);
-    }
+  return applicableGaps.map((gap) => {
+    return new FfCalendarEvent(EVENT_TYPE.FOCUS, gap);
   });
-
-  Logger.info({ appliedGaps });
 }
 
 const EVENT_TYPE_NAMES = {
   [EVENT_TYPE.FOCUS]: "Focus Time",
+  [EVENT_TYPE.LUNCH]: "Lunch",
 };
 
 /**
  * Wrapper for the CalendarApp.createEvent() interface. Creates event of the
  * provided type and sets the event tag.
  */
-function createEvent(eventType, eventStart, eventEnd) {
+function createEvent(event) {
+  const eventType = event.getType();
+  const eventStartTime = event.getStartTime();
+  const eventEndTime = event.getEndTime();
   const eventName = EVENT_TYPE_NAMES[eventType];
-  const createdEvent = CalendarApp.createEvent(
-    `⏰ ${eventName} ⏰ (via Focusfriend)`,
-    eventStart,
-    eventEnd
-  );
-  createdEvent.setTag(EVENT_TYPE_TAG_KEY, eventType);
+  if (PERSIST_TO_CAL) {
+    const createdEvent = CalendarApp.createEvent(
+      `⏰ ${eventName} ⏰ (via Focusfriend)`,
+      eventStartTime,
+      eventEndTime
+    );
+    createdEvent.setTag(EVENT_TYPE_TAG_KEY, eventType);
+  }
+  Logger.info(`Scheduled ${eventName}: ${eventStartTime} - ${eventEndTime}`);
 }
 
 /**
- * Entry point. Schedules focus time for the current week.
+ * Entry point. Schedules Focusfriend events for the current week.
+ *
+ * NOTE: changing the name of this function is a breaking change, since it will
+ * be referenced by the trigger.
+ *
  */
-function scheduleFocusTime() {
+function scheduleEvents() {
   const now = new Date();
   const dayOfWeek = now.getDay();
   const settings = new Settings();
 
-  // schedule focus time for the coming week
   for (let i = dayOfWeek; i < 6; i++) {
     // don't schedule sunday
     if (i > 0) {
-      scheduleFocusTimeForDate(settings, now.addDays(i - dayOfWeek));
+      scheduleEventsForDate(settings, now.plusDays(i - dayOfWeek));
     }
   }
 }

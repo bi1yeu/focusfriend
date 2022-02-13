@@ -11,3 +11,4 @@
 - [ ] read min focus time from sheet
 - [ ] read tz from sheet
 - [ ] read lunch min/max time from sheet
+- [ ] make lunch placement optimal for surrounding focus time
